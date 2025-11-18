@@ -1,4 +1,4 @@
-# CLAUDE.md - Implementation Guide for StockNewsNotifier
+# DESIGN_PLAN.md - Implementation Guide for StockNewsNotifier
 
 ## Project Overview
 You are building a **Windows System Tray Application** that provides real-time stock news notifications. This is a C# .NET 8 WPF application that crawls news from multiple sources and alerts users about their watched stock tickers.

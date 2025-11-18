@@ -1,8 +1,9 @@
+using System.IO;
+using System.Net;
 using System.Net.Http;
-using AngleSharp;
-using AngleSharp.Html.Dom;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
+using Polly;
 using StockNewsNotifier.Data.Entities;
 using StockNewsNotifier.Services.Interfaces;
 using StockNewsNotifier.Utilities;
@@ -16,11 +17,16 @@ public class YahooFinanceCrawler : ISourceCrawler
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<YahooFinanceCrawler> _logger;
+    private readonly ResiliencePipeline<HttpResponseMessage> _retryPipeline;
+    private static readonly Uri YahooReferrer = new("https://finance.yahoo.com/");
+    private const string DefaultUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     public YahooFinanceCrawler(IHttpClientFactory httpClientFactory, ILogger<YahooFinanceCrawler> logger)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _retryPipeline = PollyPolicies.GetRetryPolicy(logger);
     }
 
     public string Name => "YahooFinance";
@@ -29,8 +35,15 @@ public class YahooFinanceCrawler : ISourceCrawler
     /// <inheritdoc/>
     public IReadOnlyList<string> BuildQueryUrls(WatchItem watch)
     {
-        // Yahoo Finance news URL format: https://finance.yahoo.com/quote/{TICKER}/news
-        var url = $"https://finance.yahoo.com/quote/{watch.Ticker}/news";
+        var symbol = (watch.Ticker ?? string.Empty).Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(symbol))
+        {
+            _logger.LogWarning("Cannot build Yahoo Finance URL because ticker was blank for watch item {WatchItemId}", watch.Id);
+            return Array.Empty<string>();
+        }
+
+        var encodedSymbol = Uri.EscapeDataString(symbol);
+        var url = $"https://finance.yahoo.com/quote/{encodedSymbol}/news?p={encodedSymbol}";
         _logger.LogDebug("Built Yahoo Finance URL: {Url}", url);
         return new[] { url };
     }
@@ -43,11 +56,26 @@ public class YahooFinanceCrawler : ISourceCrawler
             _logger.LogInformation("Fetching Yahoo Finance news from {Url}", url);
 
             var client = _httpClientFactory.CreateClient("crawler");
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            client.Timeout = PollyPolicies.GetHttpClientTimeout();
+            using var response = await _retryPipeline.ExecuteAsync(async token =>
+            {
+                using var request = BuildRequestMessage(url);
+                return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            }, ct);
 
-            var html = await client.GetStringAsync(url, ct);
-            var articles = ParseNewsPage(html);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _logger.LogWarning("Yahoo Finance returned 404 for {Url}. The server may be blocking non-browser requests.", url);
+            }
+
+            response.EnsureSuccessStatusCode();
+            var html = await response.Content.ReadAsStringAsync(ct);
+
+            // DEBUG: Save HTML to file for inspection
+            var debugPath = Path.Combine(Path.GetTempPath(), "yahoo_finance_debug.html");
+            await File.WriteAllTextAsync(debugPath, html, ct);
+            _logger.LogInformation("Saved HTML to {Path} for debugging", debugPath);
+
+            var articles = YahooFinanceHtmlParser.Parse(html, DateTime.UtcNow, _logger);
 
             _logger.LogInformation("Fetched {Count} articles from Yahoo Finance", articles.Count);
             return articles;
@@ -65,115 +93,30 @@ public class YahooFinanceCrawler : ISourceCrawler
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error fetching from {Url}", url);
-            return Array.Empty<RawArticle>();
+                return Array.Empty<RawArticle>();
         }
     }
 
     /// <summary>
-    /// Parse HTML to extract news articles
+    /// Build an HttpRequestMessage with browser-like headers so Yahoo Finance is less likely to block the request
     /// </summary>
-    private List<RawArticle> ParseNewsPage(string html)
+    private static HttpRequestMessage BuildRequestMessage(string url)
     {
-        var articles = new List<RawArticle>();
-
-        try
-        {
-            var config = Configuration.Default;
-            var context = BrowsingContext.New(config);
-            var document = context.OpenAsync(req => req.Content(html)).Result;
-
-            // Find all news items using the data-testid attribute
-            // Based on actual HTML: <section data-testid="storyitem">
-            var newsItems = document.QuerySelectorAll("[data-testid='storyitem']");
-
-            _logger.LogDebug("Found {Count} news items in HTML", newsItems.Length);
-
-            foreach (var item in newsItems)
-            {
-                try
-                {
-                    // Find the title link (a tag with class "titles")
-                    var titleLink = item.QuerySelector("a.titles");
-                    if (titleLink == null)
-                    {
-                        _logger.LogDebug("No title link found in news item");
-                        continue;
-                    }
-
-                    // Extract title from h3 tag inside the link
-                    var titleElement = titleLink.QuerySelector("h3");
-                    if (titleElement == null)
-                    {
-                        _logger.LogDebug("No h3 title found in link");
-                        continue;
-                    }
-
-                    var title = titleElement.TextContent?.Trim();
-                    if (string.IsNullOrWhiteSpace(title))
-                    {
-                        _logger.LogDebug("Empty title found");
-                        continue;
-                    }
-
-                    // Extract URL from href attribute
-                    var url = titleLink.GetAttribute("href");
-                    if (string.IsNullOrWhiteSpace(url))
-                    {
-                        _logger.LogDebug("No URL found for article: {Title}", title);
-                        continue;
-                    }
-
-                    // Make URL absolute if it's relative
-                    if (url.StartsWith("/"))
-                    {
-                        url = $"https://finance.yahoo.com{url}";
-                    }
-
-                    // Extract publishing time from div.publishing
-                    DateTime? publishedUtc = null;
-                    var publishingDiv = item.QuerySelector("div.publishing");
-                    if (publishingDiv != null)
-                    {
-                        var publishingText = publishingDiv.TextContent?.Trim();
-                        if (!string.IsNullOrWhiteSpace(publishingText))
-                        {
-                            // Format: "Motley Fool • 33m ago"
-                            // Extract the time part after the bullet point
-                            var parts = publishingText.Split('•', StringSplitOptions.TrimEntries);
-                            if (parts.Length > 1)
-                            {
-                                var timeString = parts[1].Trim();
-                                publishedUtc = TimeParser.Parse(timeString, DateTime.UtcNow);
-                                _logger.LogTrace("Parsed time '{TimeString}' as {PublishedUtc}", timeString, publishedUtc);
-                            }
-                        }
-                    }
-
-                    // Create RawArticle
-                    var article = new RawArticle(
-                        Title: title,
-                        Url: url,
-                        PublishedUtc: publishedUtc,
-                        Summary: null // Yahoo Finance doesn't provide summaries in the list view
-                    );
-
-                    articles.Add(article);
-                    _logger.LogTrace("Parsed article: {Title} - {Url}", title, url);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to parse individual news item");
-                    // Continue processing other items
-                }
-            }
-
-            _logger.LogDebug("Successfully parsed {Count} articles", articles.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to parse HTML document");
-        }
-
-        return articles;
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Referrer = YahooReferrer;
+        request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+        request.Headers.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+        request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache");
+        request.Headers.Pragma.ParseAdd("no-cache");
+        request.Headers.TryAddWithoutValidation("sec-ch-ua", "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"");
+        request.Headers.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+        request.Headers.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+        request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+        request.Headers.UserAgent.ParseAdd(DefaultUserAgent);
+        return request;
     }
 }
