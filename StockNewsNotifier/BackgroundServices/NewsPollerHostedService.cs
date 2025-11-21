@@ -1,9 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Linq;
 using StockNewsNotifier.Data;
 using StockNewsNotifier.Data.Entities;
 using StockNewsNotifier.Services;
@@ -20,6 +22,7 @@ public class NewsPollerHostedService : BackgroundService
     private readonly ChannelScheduler _scheduler;
     private readonly IConfiguration _configuration;
     private readonly ILogger<NewsPollerHostedService> _logger;
+    private readonly Dictionary<string, RateLimitSettings> _rateLimitCache = new(StringComparer.OrdinalIgnoreCase);
 
     public NewsPollerHostedService(
         IServiceProvider services,
@@ -142,19 +145,26 @@ public class NewsPollerHostedService : BackgroundService
         AppDbContext db,
         CancellationToken ct)
     {
+        CrawlState? crawlState = null;
+
         try
         {
             var totalNewCount = 0;
             var urls = crawler.BuildQueryUrls(watchItem);
+            crawlState = await GetOrCreateCrawlStateAsync(source, crawler, db, ct);
 
             foreach (var url in urls)
             {
+                await RespectRateLimitAsync(crawlState, source, ct);
+
                 var articles = await crawler.FetchAsync(url, ct);
                 var newCount = await newsService.IngestAsync(watchItem, source.Id, articles, ct);
                 totalNewCount += newCount;
 
                 _logger.LogInformation("Crawl {Source} for {Ticker}: {NewCount} new articles",
                     source.Name, watchItem.Ticker, newCount);
+
+                await RecordCrawlSuccessAsync(crawlState, db, ct);
             }
 
             if (totalNewCount > 0 && watchItem.AlertsEnabled)
@@ -168,6 +178,11 @@ public class NewsPollerHostedService : BackgroundService
         }
         catch (Exception ex)
         {
+            if (crawlState != null)
+            {
+                await RecordCrawlFailureAsync(crawlState, ex, db, ct);
+            }
+
             _logger.LogError(ex, "Error crawling {Source} for {Ticker}", source.Name, watchItem.Ticker);
         }
     }
@@ -207,4 +222,146 @@ public class NewsPollerHostedService : BackgroundService
             await db.SaveChangesAsync(ct);
         }
     }
+
+    private async Task<CrawlState> GetOrCreateCrawlStateAsync(
+        Source source,
+        ISourceCrawler crawler,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var state = await db.CrawlStates.FirstOrDefaultAsync(cs => cs.SourceId == source.Id, ct);
+        var settings = GetRateLimitSettings(source, crawler);
+        var needsSave = false;
+
+        if (state == null)
+        {
+            state = new CrawlState
+            {
+                SourceId = source.Id,
+                RequestsPerSecond = settings.RequestsPerSecond,
+                RequestsPerMinute = settings.RequestsPerMinute
+            };
+
+            db.CrawlStates.Add(state);
+            needsSave = true;
+        }
+        else
+        {
+            if (Math.Abs(state.RequestsPerSecond - settings.RequestsPerSecond) > double.Epsilon)
+            {
+                state.RequestsPerSecond = settings.RequestsPerSecond;
+                needsSave = true;
+            }
+
+            if (state.RequestsPerMinute != settings.RequestsPerMinute)
+            {
+                state.RequestsPerMinute = settings.RequestsPerMinute;
+                needsSave = true;
+            }
+        }
+
+        if (needsSave)
+        {
+            await db.SaveChangesAsync(ct);
+        }
+
+        return state;
+    }
+
+    private RateLimitSettings GetRateLimitSettings(Source source, ISourceCrawler crawler)
+    {
+        var defaultRps = Math.Max(0.1, _configuration.GetValue<double>("RateLimits:DefaultRps", 1));
+        var defaultPerMinute = Math.Max(1, _configuration.GetValue<int>("RateLimits:DefaultPerMinute", 10));
+        var host = GetHostForSource(source, crawler);
+
+        if (host == null)
+        {
+            return new RateLimitSettings(defaultRps, defaultPerMinute);
+        }
+
+        if (_rateLimitCache.TryGetValue(host, out var cached))
+        {
+            return cached;
+        }
+
+        var overridesSection = _configuration.GetSection($"RateLimits:PerHostOverrides:{host}");
+        var rps = overridesSection.Exists() ? overridesSection.GetValue<double?>("Rps") ?? defaultRps : defaultRps;
+        var perMinute = overridesSection.Exists() ? overridesSection.GetValue<int?>("PerMinute") ?? defaultPerMinute : defaultPerMinute;
+
+        var settings = new RateLimitSettings(
+            RequestsPerSecond: rps <= 0 ? defaultRps : rps,
+            RequestsPerMinute: perMinute <= 0 ? defaultPerMinute : perMinute);
+
+        _rateLimitCache[host] = settings;
+        return settings;
+    }
+
+    private static string? GetHostForSource(Source source, ISourceCrawler crawler)
+    {
+        if (!string.IsNullOrWhiteSpace(source.BaseUrl) &&
+            Uri.TryCreate(source.BaseUrl, UriKind.Absolute, out var uri))
+        {
+            return uri.Host;
+        }
+
+        return string.IsNullOrWhiteSpace(crawler.BaseHost) ? null : crawler.BaseHost;
+    }
+
+    private async Task RespectRateLimitAsync(CrawlState state, Source source, CancellationToken ct)
+    {
+        var delay = CalculateRateLimitDelay(state);
+        if (delay > TimeSpan.Zero)
+        {
+            _logger.LogDebug("Delaying {DelaySeconds:F1}s for {Source} to respect rate limits",
+                delay.TotalSeconds, source.Name);
+            await Task.Delay(delay, ct);
+        }
+    }
+
+    private static TimeSpan CalculateRateLimitDelay(CrawlState state)
+    {
+        if (!state.LastCrawlUtc.HasValue)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var intervalSeconds = 0d;
+        if (state.RequestsPerSecond > 0)
+        {
+            intervalSeconds = Math.Max(intervalSeconds, 1d / state.RequestsPerSecond);
+        }
+
+        if (state.RequestsPerMinute > 0)
+        {
+            intervalSeconds = Math.Max(intervalSeconds, 60d / state.RequestsPerMinute);
+        }
+
+        if (intervalSeconds <= 0)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var nextTime = state.LastCrawlUtc.Value.AddSeconds(intervalSeconds);
+        var wait = nextTime - DateTime.UtcNow;
+        return wait > TimeSpan.Zero ? wait : TimeSpan.Zero;
+    }
+
+    private static Task RecordCrawlSuccessAsync(CrawlState state, AppDbContext db, CancellationToken ct)
+    {
+        state.LastCrawlUtc = DateTime.UtcNow;
+        state.ConsecutiveErrors = 0;
+        state.LastError = null;
+        state.LastErrorUtc = null;
+        return db.SaveChangesAsync(ct);
+    }
+
+    private static Task RecordCrawlFailureAsync(CrawlState state, Exception ex, AppDbContext db, CancellationToken ct)
+    {
+        state.ConsecutiveErrors += 1;
+        state.LastError = ex.Message;
+        state.LastErrorUtc = DateTime.UtcNow;
+        return db.SaveChangesAsync(ct);
+    }
+
+    private sealed record RateLimitSettings(double RequestsPerSecond, int RequestsPerMinute);
 }

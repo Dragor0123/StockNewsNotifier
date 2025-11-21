@@ -211,7 +211,7 @@ StockNewsNotifier/
 | Phase 2: Core Services | ✅ 완료 | 100% |
 | Phase 3: Yahoo Finance Crawler | ✅ 완료 | 100% |
 | **Phase 3 테스트** | ✅ 완료 | **100%** |
-| Phase 4-5: Background Polling | ❌ 미착수 | 0% |
+| Phase 4-5: Background Polling | 🚧 진행 중 | 40% |
 | Phase 6: UI Implementation | ❌ 미착수 | 0% |
 | Phase 7: Notifications | ❌ 미착수 | 0% |
 
@@ -231,18 +231,17 @@ StockNewsNotifier/
    - ✅ 상대 URL 보정 및 발행시각 파싱 로깅 강화
    - ✅ 실제 Yahoo HTML 캡처 기반 단위 테스트 2종 (`HtmlParser`, `Crawler.FetchAsync`) 작성
 
-### 현재 포커스
-- Phase 4-5: Background Polling
-  - ChannelScheduler 구현
-  - NewsPollerHostedService 구현
-  - 레이트 리미팅 적용
-  - CrawlState 관리
+### Phase 4-5: Background Polling 진행 상황
+- ✅ ChannelScheduler로 감시목록 큐잉 파이프라인 확보
+- ✅ NewsPollerHostedService가 주기적으로 watch item을 enqueue하고 순차적으로 처리
+- ✅ CrawlState 생성/업데이트 + 연속 오류 기록
+- ✅ 구성이 가능한 레이트 리밋 (기본 RPS/RPM + host override) 적용
+- ✅ 크롤링 시 rate-limit 대기 및 성공/실패마다 CrawlState 반영
 
-### Phase 4-5: Background Polling (다음 우선순위)
-- ChannelScheduler 구현
-- NewsPollerHostedService 구현
-- 레이트 리미팅 적용
-- CrawlState 관리
+### Phase 4-5: 다음 작업
+- ⏳ CrawlState 기반의 robots.txt 캐시/재검증
+- ⏳ 레이트 리밋 테스트/진단 로깅 강화
+- ⏳ Watch item 큐에 대한 우선순위/중복 제어 검토
 
 ### Phase 6: UI Implementation
 - MainWindow 구현
