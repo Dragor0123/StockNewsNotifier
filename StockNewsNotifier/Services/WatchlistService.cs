@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using StockNewsNotifier.Data;
@@ -49,21 +50,28 @@ public class WatchlistService : IWatchlistService
         var yahooSource = await _db.Sources
             .FirstOrDefaultAsync(s => s.Name == "YahooFinance", ct);
 
-        if (yahooSource != null)
+        if (yahooSource == null)
         {
-            _db.WatchItemSources.Add(new WatchItemSource
+            var definition = SourceDefinitions.Defaults.First(s => s.Name == "YahooFinance");
+            yahooSource = new Source
             {
-                WatchItemId = watchItem.Id,
-                SourceId = yahooSource.Id,
+                Name = definition.Name,
+                DisplayName = definition.DisplayName,
+                BaseUrl = definition.BaseUrl,
                 Enabled = true
-            });
+            };
+            _db.Sources.Add(yahooSource);
+            await _db.SaveChangesAsync(ct);
+        }
 
-            _logger.LogInformation("Added YahooFinance source to {Ticker}", ticker);
-        }
-        else
+        _db.WatchItemSources.Add(new WatchItemSource
         {
-            _logger.LogWarning("YahooFinance source not found in database. Watch item created without default source.");
-        }
+            WatchItemId = watchItem.Id,
+            SourceId = yahooSource.Id,
+            Enabled = true
+        });
+
+        _logger.LogInformation("Added YahooFinance source to {Ticker}", ticker);
 
         await _db.SaveChangesAsync(ct);
 

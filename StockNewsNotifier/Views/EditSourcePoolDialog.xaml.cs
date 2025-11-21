@@ -15,15 +15,6 @@ namespace StockNewsNotifier.Views;
 
 public partial class EditSourcePoolDialog : Window
 {
-    private static readonly SourceDefinition[] DefaultSources =
-    {
-        new("YahooFinance", "Yahoo Finance", "https://finance.yahoo.com"),
-        new("Reuters", "Reuters", "https://www.reuters.com/"),
-        new("GoogleFinance", "Google Finance", "https://www.google.com/finance/"),
-        new("Investing", "Investing.com", "https://www.investing.com/"),
-        new("WSJ", "Wall Street Journal", "https://www.wsj.com/")
-    };
-
     private readonly IServiceProvider _services;
     private readonly Guid _watchItemId;
     private readonly ObservableCollection<SourceOption> _options = new();
@@ -48,7 +39,7 @@ public partial class EditSourcePoolDialog : Window
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             var sourceMap = new Dictionary<string, Source>(StringComparer.OrdinalIgnoreCase);
-            foreach (var definition in DefaultSources)
+            foreach (var definition in SourceDefinitions.Defaults)
             {
                 var source = await db.Sources.FirstOrDefaultAsync(s => s.Name == definition.Name);
                 if (source == null)
@@ -130,8 +121,6 @@ public partial class EditSourcePoolDialog : Window
             MessageBox.Show($"Failed to save sources: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
-
-    private sealed record SourceDefinition(string Name, string DisplayName, string BaseUrl);
 
     private sealed class SourceOption : INotifyPropertyChanged
     {

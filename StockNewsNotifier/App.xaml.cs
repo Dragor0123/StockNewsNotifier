@@ -94,6 +94,8 @@ public partial class App : System.Windows.Application
 
             Log.Information("Host started successfully");
 
+            await SourceSeeder.EnsureDefaultsAsync(Services);
+
             _mainWindow = new MainWindow();
             _mainWindow.Show();
         }

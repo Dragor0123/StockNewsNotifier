@@ -40,6 +40,8 @@
 - ✅ CrawlState persistence tracks RPS/RPM, last crawl, errors, and cached robots.txt.
 - ✅ Rate limits configurable per host (default + overrides) and enforced before each fetch.
 - ✅ robots.txt fetched on demand and cached for `Crawler.RobotsCacheHours` (default 24h).
+- ✅ App start seeds default sources (Yahoo, Reuters, Google Finance, Investing, WSJ) and backfills Yahoo for existing watch items. New watch items always attach Yahoo automatically, ensuring crawlers have an entry point.
+- ✅ UI proactively enqueues crawler jobs: when the watchlist first loads and whenever a user adds a ticker, the ChannelScheduler queues those watch items immediately so `View News` has data without waiting for the background interval.
 - ⏳ TODO: obey Disallow rules from cached robots.txt, add richer diagnostics/tests for rate limiting, and evaluate prioritization for multi-source watch queues.
 
 ### Phase 6 – Tray/UI Status
@@ -50,6 +52,7 @@
   - Edit Search Pool (opens `EditSourcePoolDialog` with checklist of Yahoo/Reuters/Google/Investing/WSJ)
   - Delete watch item (removes via `IWatchlistService.RemoveAsync`)
 - ✅ “+” button launches `AddWatchDialog` to collect `EXCHANGE:TICKER` and add via `IWatchlistService.AddAsync`.
+- ✅ News view window auto-refreshes from `INewsService`, and the add workflow now triggers an immediate crawl so newly added tickers populate news shortly after submission.
 - ✅ View models (`MainWindowViewModel`, `WatchItemViewModel`, `NewsItemViewModel`) plus `RelayCommand` and `NullToVisibilityConverter` support binding and commands.
 - ⏳ TODO: bind real company logos, implement search/filter UI, and flesh out news list interactions (mark read, open in browser, etc.).
 

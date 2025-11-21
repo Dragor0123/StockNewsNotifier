@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -16,6 +17,7 @@ public class MainWindowViewModel : BaseViewModel
 {
     private readonly IServiceProvider _services;
     private bool _isBusy;
+    private bool _initialQueueCompleted;
 
     public MainWindowViewModel(IServiceProvider services)
     {
@@ -62,6 +64,12 @@ public class MainWindowViewModel : BaseViewModel
             {
                 WatchItems.Add(new WatchItemViewModel(this, _services, item));
             }
+
+            if (!_initialQueueCompleted && WatchItems.Count > 0)
+            {
+                QueueCrawlsFor(WatchItems.Select(w => w.Id));
+                _initialQueueCompleted = true;
+            }
         }
         catch (Exception ex)
         {
@@ -107,11 +115,22 @@ public class MainWindowViewModel : BaseViewModel
 
             // reload list to include navigation properties
             await LoadWatchItemsAsync();
+
+            QueueCrawlsFor(new[] { added.Id });
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Failed to add watch item: {ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void QueueCrawlsFor(IEnumerable<Guid> watchItemIds)
+    {
+        var scheduler = _services.GetRequiredService<IScheduler>();
+        foreach (var id in watchItemIds)
+        {
+            scheduler.EnqueueCrawl(id);
         }
     }
 }
