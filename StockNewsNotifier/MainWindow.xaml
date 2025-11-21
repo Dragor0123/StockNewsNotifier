@@ -11,6 +11,9 @@
         Width="540"
         MinWidth="420"
         MinHeight="320">
+    <Window.Resources>
+        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+    </Window.Resources>
     <Grid Background="#FFF9F9FB" Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -120,9 +123,6 @@
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
-                    <ItemsControl.Resources>
-                        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
-                    </ItemsControl.Resources>
                 </ItemsControl>
             </ScrollViewer>
         </Border>

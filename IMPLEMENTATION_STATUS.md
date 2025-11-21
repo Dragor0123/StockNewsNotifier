@@ -1,349 +1,76 @@
-# StockNewsNotifier - Implementation Status
+# StockNewsNotifier – Implementation Status
 
-## 프로젝트 개요
-Windows 시스템 트레이 애플리케이션으로, 주식 뉴스를 실시간으로 크롤링하여 사용자에게 알림을 제공합니다.
+## Project Snapshot
+- Windows tray application (WPF + WinForms NotifyIcon) crawling stock news and displaying toast notifications.
+- Stack: .NET 8, EF Core + SQLite, AngleSharp, Polly, Serilog, Microsoft.Toolkit.Uwp.Notifications.
+- Repository layout:
+  ```
+  StockNewsNotifier/
+  ├── StockNewsNotifier/            # Main WPF project
+  │   ├── App.xaml(.cs)             # Generic host + DI bootstrap
+  │   ├── MainWindow.xaml(.cs)      # Tray UI shell
+  │   ├── BackgroundServices/       # NewsPollerHostedService
+  │   ├── Commands/, Converters/, ViewModels/, Views/
+  │   ├── Services/                 # EF-backed services + crawlers
+  │   ├── Utilities/                # Dedupe, URL canonicalizer, etc.
+  │   └── Data/                     # EF entities, DbContext, migrations
+  └── tests/StockNewsNotifier.Tests # Fixture-based crawler smoke tests
+  ```
 
-**기술 스택:**
-- .NET 8, WPF (UI) + WinForms NotifyIcon (트레이)
-- EF Core + SQLite
-- AngleSharp (HTML 파싱)
-- Polly (복원력 패턴)
-- Serilog (로깅)
+## Phase Progress
 
-**프로젝트 시작일:** 2025-11-16
-**마지막 업데이트:** 2025-11-18
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1 – Foundation | ✅ Complete | Project scaffolding, EF models, migrations, Serilog. |
+| Phase 2 – Core Services | ✅ Complete | Watchlist/News services, utilities, interfaces. |
+| Phase 3 – Yahoo Crawler | ✅ Complete | HttpClient + AngleSharp crawler, parser, retry policies. |
+| Phase 3 – Testing | ✅ Complete | Fixture-based parser + crawler smoke tests (`tests/StockNewsNotifier.Tests`). |
+| Phase 4-5 – Background Polling | 🚧 In progress | Scheduler + hosted service live; remaining work listed below. |
+| Phase 6 – Tray/UI | 🚧 In progress | Tray icon & watchlist UI implemented; advanced views pending. |
+| Phase 7 – Notifications | ❌ Not started | Placeholder logging implementation only. |
 
----
+### Phase 3 Testing Highlights
+- HttpClient requests mimic browser headers, include referrer/sec-fetch headers, and run through Polly retry/backoff.
+- Yahoo parser handles multiple layouts (`[data-testid='storyitem']`, `li.js-stream-content`), canonicalizes URLs, and parses absolute/relative timestamps.
+- Two offline smoke tests validate the HTML parser and crawler against saved Yahoo fixtures (`msft_news_sample.html`, `aapl_news_sample.html`) to catch regressions without network access.
 
-## ✅ Phase 1: Foundation (완료)
+### Phase 4-5 – Background Polling Status
+- ✅ ChannelScheduler with duplicate suppression + `MarkCompleted` to avoid re-enqueue storms.
+- ✅ `NewsPollerHostedService` polls watchlist on configurable interval/jitter, enqueues crawls, and processes results sequentially.
+- ✅ CrawlState persistence tracks RPS/RPM, last crawl, errors, and cached robots.txt.
+- ✅ Rate limits configurable per host (default + overrides) and enforced before each fetch.
+- ✅ robots.txt fetched on demand and cached for `Crawler.RobotsCacheHours` (default 24h).
+- ⏳ TODO: obey Disallow rules from cached robots.txt, add richer diagnostics/tests for rate limiting, and evaluate prioritization for multi-source watch queues.
 
-### Step 1.1: 프로젝트 설정
-- ✅ 솔루션 및 WPF 프로젝트 생성
-- ✅ NuGet 패키지 설치
-  - Microsoft.EntityFrameworkCore.Sqlite (8.0.*)
-  - Microsoft.EntityFrameworkCore.Design (8.0.*)
-  - Microsoft.Extensions.Hosting (10.0.0)
-  - Microsoft.Extensions.Configuration.Json (10.0.0)
-  - Microsoft.Extensions.Http (10.0.0)
-  - AngleSharp (1.4.0)
-  - Serilog (4.3.0)
-  - Serilog.Sinks.File (7.0.0)
-  - Serilog.Extensions.Hosting (9.0.0)
-  - Polly (8.6.4)
-  - Microsoft.Toolkit.Uwp.Notifications (7.1.3)
+### Phase 6 – Tray/UI Status
+- ✅ NotifyIcon integration using `tray_icon.ico`, left-click restore, context menu (Open/Exit), hide-on-close/minimize, tidy shutdown.
+- ✅ Main window now lists watch items with icon placeholder, `EXCHANGE:TICKER`, company name, bell glyph for alerts, and per-row “…” menu:
+  - Toggle Alerts (calls `IWatchlistService.SetAlertsAsync`)
+  - View News (opens `NewsViewWindow`, shows read/unread articles with source/time)
+  - Edit Search Pool (opens `EditSourcePoolDialog` with checklist of Yahoo/Reuters/Google/Investing/WSJ)
+  - Delete watch item (removes via `IWatchlistService.RemoveAsync`)
+- ✅ “+” button launches `AddWatchDialog` to collect `EXCHANGE:TICKER` and add via `IWatchlistService.AddAsync`.
+- ✅ View models (`MainWindowViewModel`, `WatchItemViewModel`, `NewsItemViewModel`) plus `RelayCommand` and `NullToVisibilityConverter` support binding and commands.
+- ⏳ TODO: bind real company logos, implement search/filter UI, and flesh out news list interactions (mark read, open in browser, etc.).
 
-### Step 1.2: Data Models
-엔티티 클래스 생성 (`Data/Entities/`):
-- ✅ **WatchItem.cs** - 감시 중인 주식 티커
-  - Exchange, Ticker, CompanyName, IconUrl, AlertsEnabled, CreatedUtc
-- ✅ **Source.cs** - 뉴스 소스
-  - Name, BaseUrl, Enabled, DisplayName
-- ✅ **WatchItemSource.cs** - WatchItem ↔ Source 다대다 관계
-  - CustomQuery, Enabled
-- ✅ **NewsItem.cs** - 크롤링된 뉴스 아이템
-  - Title, Url, CanonicalUrl, TitleHash, SimHash64
-  - PublishedUtc, FetchedUtc, IsRead, NotificationSent
-- ✅ **CrawlState.cs** - 크롤링 상태 및 레이트 리미팅
-  - LastCrawlUtc, RequestsPerSecond, RobotsTxt, ConsecutiveErrors
+### Phase 7 – Notifications (pending)
+- Current `NotificationService` just logs events; Windows toast implementation still outstanding (including activation handling & throttling).
 
-### Step 1.3: AppDbContext
-- ✅ EF Core DbContext 구성
-- ✅ Fluent API를 통한 엔티티 설정
-- ✅ 인덱스 생성:
-  - `IX_WatchItem_Exchange_Ticker` (unique)
-  - `IX_NewsItem_CanonicalUrl` (unique)
-  - `IX_NewsItem_WatchItemId_FetchedUtc`
-  - 기타 성능 최적화 인덱스
+## Outstanding Tasks / Next Focus
+1. **Robots.txt enforcement** – parse cached robots text to skip disallowed paths before invoking crawlers.
+2. **Scheduler diagnostics** – add logging/tests verifying rate-limit delays and queue throughput under load.
+3. **Watchlist UI polish** – display actual icons, add sorting/filter options, persist user preferences.
+4. **News UX** – allow marking articles read/unread, open links in browser, and show summaries.
+5. **Toast notifications** – implement Windows toast service per design (buttons for open/mark read, AUMID registration).
 
-### Step 1.4: Generic Host Bootstrap
-- ✅ `App.xaml.cs` 수정
-  - Microsoft.Extensions.Hosting 통합
-  - Serilog 로깅 설정 (일별 로그 파일 롤링)
-  - appsettings.json 구성 파일 로딩
-  - DbContext DI 등록
-  - 애플리케이션 라이프사이클 관리
+## Testing
+- `tests/StockNewsNotifier.Tests` is a console runner executing the parser/crawler fixture smoke tests. Run with:
+  ```
+  dotnet run --project tests/StockNewsNotifier.Tests
+  ```
+- Manual testing: add watch items via tray window (`+`), verify crawler logs, ensure UI interactions work (alerts toggle, news dialog, source editing).
 
-### Step 1.5: appsettings.json
-- ✅ 구성 파일 생성
-  - Polling 설정 (240초 간격, 30초 지터)
-  - RateLimits 설정 (기본 1 RPS, 10 RPM)
-  - Notifications 설정
-  - Serilog 로깅 레벨 설정
-
-### 데이터베이스 마이그레이션
-- ✅ `dotnet ef migrations add InitialCreate`
-- ✅ `dotnet ef database update`
-- ✅ 데이터베이스 위치: `%LocalAppData%\StockNewsNotifier\news.db`
-
----
-
-## ✅ Phase 2: Core Services (완료)
-
-### Step 2.1: 인터페이스 정의
-`Services/Interfaces/` 폴더:
-- ✅ **Ticker.cs** - `record Ticker(string Exchange, string Symbol)`
-- ✅ **IWatchlistService.cs** - 감시 목록 관리
-  - AddAsync, RemoveAsync, SetAlertsAsync, ListAsync
-- ✅ **ISourceCrawler.cs** - 크롤러 인터페이스
-  - Name, BaseHost, BuildQueryUrls, FetchAsync
-- ✅ **RawArticle** - `record RawArticle(string Title, string Url, DateTime? PublishedUtc, string? Summary)`
-- ✅ **INewsService.cs** - 뉴스 관리
-  - IngestAsync, ListAsync, MarkReadAsync
-- ✅ **INotificationService.cs** - 알림 서비스
-- ✅ **IScheduler.cs** - 크롤링 스케줄러
-
-### Step 2.2: 유틸리티 클래스
-`Utilities/` 폴더:
-- ✅ **DedupeHelper.cs**
-  - `ComputeTitleHash()` - SHA256 해시 기반 중복 감지
-  - `ComputeSimHash()` - MVP에서는 0 반환 (향후 구현 예정)
-- ✅ **UrlCanonicalizer.cs**
-  - 추적 파라미터 제거: utm_*, gclid, fbclid, msclkid, yclid, mc_cid, mc_eid, ref, src
-  - 향후 appsettings.json으로 설정 가능하도록 설계
-- ✅ **TimeParser.cs**
-  - 상대 시간 파싱: "33m ago", "2h ago", "3d ago"
-  - 절대 시간 파싱: ISO 8601 및 일반 DateTime 형식
-- ✅ **PollyPolicies.cs**
-  - 3회 재시도, 지수 백오프 (2^retry 초) + 지터
-  - HttpClient 타임아웃: 10-15초 랜덤
-
-### Step 2.3-2.4: 서비스 구현
-`Services/` 폴더:
-- ✅ **WatchlistService.cs**
-  - 티커 추가 시 중복 체크
-  - YahooFinance 소스 자동 연결
-  - AlertsEnabled 토글
-  - 전체 감시 목록 조회 (Sources 포함)
-- ✅ **NewsService.cs**
-  - 중복 제거 전략:
-    1. CanonicalUrl 기반 체크
-    2. TitleHash 기반 체크 (같은 제목, 다른 URL)
-  - 날짜 범위 및 읽음/안읽음 필터링
-  - 읽음 상태 업데이트
-
----
-
-## ✅ Phase 3: Yahoo Finance Crawler (완료)
-
-### 구현 내용
-`Services/Crawlers/YahooFinanceCrawler.cs`:
-- ✅ URL 생성: `https://finance.yahoo.com/quote/{TICKER}/news`
-- ✅ HTML 파싱 로직:
-  - CSS 셀렉터: `[data-testid="storyitem"]`
-  - 제목 추출: `a.titles > h3`
-  - URL 추출: `a.titles[href]`
-  - 시간 추출: `div.publishing` (형식: "Motley Fool • 33m ago")
-- ✅ HTTP 요청:
-  - User-Agent 설정
-  - 타임아웃 설정
-  - 에러 핸들링
-- ✅ 상세 로깅
-
----
-
-## ✅ 현재 상태: 자동 테스트 확보
-
-### 테스트 환경 구성
-- ✅ StockNewsNotifier.Tests 콘솔 러너에 Yahoo HTML fixture 기반 테스트 2종 추가
-  - `YahooFinanceHtmlParserFixtureSmokeTest` (파싱 정확도)
-  - `YahooFinanceCrawlerHttpSmokeTest` (HttpClient 파이프라인 + FetchAsync 통합)
-- ✅ `Program.cs`가 다중 테스트를 실행하고 실패 시 비 0 종료코드 반환
-- ✅ App.xaml.cs에서 수동 `RunCrawlerTestAsync()` 제거 → UI/호스트가 메시지 박스 없이 기동
-- ✅ 서비스 DI 등록:
-  - WatchlistService (Scoped)
-  - NewsService (Scoped)
-  - YahooFinanceCrawler (Singleton)
-  - HttpClient("crawler")
-
----
-
-## 📂 프로젝트 구조
-
-```
-StockNewsNotifier/
-├── StockNewsNotifier.sln
-├── CLAUDE.md                      # 구현 가이드
-├── IMPLEMENTATION_STATUS.md       # 이 문서
-├── README.md
-└── StockNewsNotifier/
-    ├── StockNewsNotifier.csproj
-    ├── App.xaml
-    ├── App.xaml.cs                # Generic Host 설정 + 테스트 코드
-    ├── appsettings.json           # 구성 파일
-    ├── Data/
-    │   ├── AppDbContext.cs        # EF Core DbContext
-    │   ├── Entities/
-    │   │   ├── WatchItem.cs
-    │   │   ├── Source.cs
-    │   │   ├── WatchItemSource.cs
-    │   │   ├── NewsItem.cs
-    │   │   └── CrawlState.cs
-    │   └── Migrations/
-    │       └── 20251116103459_InitialCreate.cs
-    ├── Services/
-    │   ├── Interfaces/
-    │   │   ├── Ticker.cs
-    │   │   ├── IWatchlistService.cs
-    │   │   ├── ISourceCrawler.cs
-    │   │   ├── INewsService.cs
-    │   │   ├── INotificationService.cs
-    │   │   └── IScheduler.cs
-    │   ├── WatchlistService.cs
-    │   ├── NewsService.cs
-    │   └── Crawlers/
-    │       └── YahooFinanceCrawler.cs
-    ├── Utilities/
-    │   ├── DedupeHelper.cs
-    │   ├── UrlCanonicalizer.cs
-    │   ├── TimeParser.cs
-    │   └── PollyPolicies.cs
-    └── Views/
-        └── MainWindow.xaml        # 기본 빈 창 (UI 미구현)
-```
-
----
-
-## 📊 구현 진행률
-
-| Phase | 상태 | 완료율 |
-|-------|------|--------|
-| Phase 1: Foundation | ✅ 완료 | 100% |
-| Phase 2: Core Services | ✅ 완료 | 100% |
-| Phase 3: Yahoo Finance Crawler | ✅ 완료 | 100% |
-| **Phase 3 테스트** | ✅ 완료 | **100%** |
-| Phase 4-5: Background Polling | 🚧 진행 중 | 40% |
-| Phase 6: UI Implementation | ❌ 미착수 | 0% |
-| Phase 7: Notifications | ❌ 미착수 | 0% |
-
----
-
-## 🎯 다음 단계
-
-### Phase 3 테스트 마무리 (완료)
-1. **Yahoo Finance 404 에러 대응**
-   - ✅ HttpClient 기본 헤더/타임아웃을 브라우저와 유사하게 구성 (Accept, Accept-Language, Accept-Encoding 등)
-   - ✅ 요청마다 Referrer/UA/SEC-FETCH 헤더를 포함하는 `BuildRequestMessage` 도입
-   - ✅ Polly 재시도 파이프라인 적용으로 5xx/네트워크 오류 자동 재시도
-   - ✅ 필요 시 네트워크 없이도 검증 가능한 HttpClient fixture 테스트 추가
-2. **파서 안정화**
-   - ✅ AngleSharp `HtmlParser`로 교체하고 `[data-testid='storyitem']` + `li.js-stream-content` 폴백 셀렉터 추가
-   - ✅ `a.titles`, `h3 a`, `a[data-ylk]` 등 다양한 링크 패턴 지원
-   - ✅ 상대 URL 보정 및 발행시각 파싱 로깅 강화
-   - ✅ 실제 Yahoo HTML 캡처 기반 단위 테스트 2종 (`HtmlParser`, `Crawler.FetchAsync`) 작성
-
-### Phase 4-5: Background Polling 진행 상황
-- ✅ ChannelScheduler로 감시목록 큐잉 파이프라인 확보
-- ✅ NewsPollerHostedService가 주기적으로 watch item을 enqueue하고 순차적으로 처리
-- ✅ CrawlState 생성/업데이트 + 연속 오류 기록
-- ✅ 구성이 가능한 레이트 리밋 (기본 RPS/RPM + host override) 적용
-- ✅ 크롤링 시 rate-limit 대기 및 성공/실패마다 CrawlState 반영
-- ✅ ChannelScheduler가 큐 중복을 방지하고 작업 완료 시 MarkCompleted로 unlock
-- ✅ robots.txt를 주기적으로 캐시하여 CrawlState에 저장 (`Crawler.RobotsCacheHours`, 기본 24시간)
-
-### Phase 4-5: 다음 작업
-- ⏳ robots.txt Disallow 규칙을 실제 크롤링 앞단에서 평가
-- ⏳ 레이트 리밋 테스트/진단 로깅 강화
-- ⏳ Watch item 큐에 대한 우선순위/중복 제어 검토 (다중 소스 대비)
-
-### Phase 6: Tray/UI 진행 상황
-- ✅ WinForms `NotifyIcon` 기반 시스템 트레이 아이콘 추가 (`tray_icon.ico` 활용)
-- ✅ 트레이 컨텍스트 메뉴 (Open / Exit) 및 좌클릭으로 창 복귀
-- ✅ 창 닫기/최소화 시 트레이로 숨김, 종료 시 Tray Icon 정리
-- ✅ 메인 창에서 감시 목록 표시, 종목별 컨텍스트 메뉴(토글 알림/뉴스 보기/검색 풀 편집/삭제)
-- ✅ `+` 버튼으로 EXCHANGE:TICKER 입력 다이얼로그를 띄워 watch item 추가
-- ✅ 뉴스 목록 창과 소스 풀 편집 다이얼로그(체크리스트) 제공
-- ⏳ Watchlist/뉴스 UI 데이터 바인딩 및 편집 화면 구현
-
-### Phase 6: UI Implementation
-- MainWindow 구현
-- NotifyIcon 트레이 아이콘
-- 감시 목록 UI
-- 뉴스 목록 UI
-
-### Phase 7: Notifications
-- Windows Toast 알림 구현
-- 알림 빈도 제한
-- 알림 클릭 처리
-
----
-
-## 🔍 주요 결정 사항
-
-### 중복 제거 전략
-- **Phase 2**: CanonicalUrl + TitleHash 사용
-- **SimHash64**: 필드만 존재, 항상 0 저장 (향후 구현)
-- **이유**: MVP 단계에서는 간단한 중복 제거만 구현
-
-### URL 정규화
-- **추적 파라미터**: 확장 리스트 사용
-  - UTM: utm_source, utm_medium, utm_campaign, utm_term, utm_content, utm_id
-  - 광고: gclid, fbclid, msclkid, yclid
-  - 이메일: mc_cid, mc_eid
-  - 기타: ref, src
-- **향후 계획**: appsettings.json으로 설정 이동
-
-### Polly 재시도 정책
-- **재시도**: 3회
-- **백오프**: 지수 (2^retry 초) + 지터
-- **타임아웃**: 10-15초 랜덤
-
-### 시간 파싱
-- **Phase 2**: Xm/Xh/Xd ago + DateTime 형식만 지원
-- **미지원 형식**: PublishedUtc = null, FetchedUtc 사용
-
----
-
-## 📝 로그 및 디버깅
-
-### 로그 위치
-```
-%LocalAppData%\StockNewsNotifier\Logs\app-YYYYMMDD.log
-```
-
-### 데이터베이스 위치
-```
-%LocalAppData%\StockNewsNotifier\news.db
-```
-
-### 디버그 HTML (테스트 중)
-```
-%TEMP%\yahoo_finance_debug.html
-```
-
----
-
-## 🐛 알려진 이슈
-
-1. **Yahoo Finance 404 에러**
-   - 브라우저에서는 정상 작동
-   - HttpClient에서는 404 반환
-   - 봇 감지 차단으로 추정
-
-2. **UI 미구현**
-   - 현재 빈 MainWindow만 표시
-   - Phase 6에서 구현 예정
-
-3. **알림 미구현**
-   - Phase 7에서 구현 예정
-
----
-
-## 📚 참고 문서
-
-- [CLAUDE.md](./CLAUDE.md) - 전체 구현 가이드
-- [EF Core Documentation](https://docs.microsoft.com/en-us/ef/core/)
-- [AngleSharp Documentation](https://anglesharp.github.io/)
-- [Polly Documentation](https://github.com/App-vNext/Polly)
-- [Serilog Documentation](https://serilog.net/)
-
----
-
-**마지막 업데이트:** 2025-11-18 12:44 (KST)
-
----
-
-### Recent Work Summary (2025-11-19)
-- Introduced a channel-based scheduler and `NewsPollerHostedService`, enabling automated polling of the watchlist and crawl job processing. The service reads polling intervals from `appsettings.json`, applies jitter, and enqueues every watch item for crawling.
-- Added `NotificationService` as a temporary logger-backed implementation of `INotificationService`, paving the way for Windows toast notifications in Phase 7.
-- Refined the Yahoo Finance crawler: URL builder now encodes symbols (`https://finance.yahoo.com/quote/{ticker}/news?p={ticker}`), HttpClient uses `SocketsHttpHandler` with automatic decompression, and parsing logic is extracted into `YahooFinanceHtmlParser`.
-- Created a lightweight console-based HTML fixture smoke test under `tests/StockNewsNotifier.Tests`. It verifies the parser with saved Yahoo Finance HTML without requiring third-party test frameworks, ensuring builds succeed in network-restricted environments.
+## Logging & Data Paths
+- Logs: `%LocalAppData%\StockNewsNotifier\Logs\app-YYYYMMDD.log`
+- SQLite DB: `%LocalAppData%\StockNewsNotifier\news.db`
+- Debug Yahoo HTML: `%TEMP%\yahoo_finance_debug.html`
