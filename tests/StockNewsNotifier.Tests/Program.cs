@@ -1,13 +1,37 @@
 using StockNewsNotifier.Tests.Crawlers;
 
-var ok = YahooFinanceHtmlFixtureSmokeTest.Run(out var error);
-if (ok)
+var tests = new (string Name, Func<(bool Ok, string? Error)> Run)[]
 {
-    Console.WriteLine("YahooFinanceHtmlParser fixture smoke test passed.");
-}
-else
+    ("YahooFinanceHtmlParser fixture", () =>
+    {
+        var ok = YahooFinanceHtmlFixtureSmokeTest.Run(out var error);
+        return (ok, error);
+    }),
+    ("YahooFinanceCrawler HTTP fixture", () =>
+    {
+        var ok = YahooFinanceCrawlerHttpSmokeTest.Run(out var error);
+        return (ok, error);
+    })
+};
+
+var failures = 0;
+
+foreach (var test in tests)
 {
-    Console.Error.WriteLine("YahooFinanceHtmlParser fixture smoke test failed:");
-    Console.Error.WriteLine(error);
-    Environment.ExitCode = 1;
+    var (ok, error) = test.Run();
+    if (ok)
+    {
+        Console.WriteLine($"{test.Name}: PASS");
+    }
+    else
+    {
+        failures++;
+        Console.Error.WriteLine($"{test.Name}: FAIL");
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            Console.Error.WriteLine(error);
+        }
+    }
 }
+
+Environment.ExitCode = failures == 0 ? 0 : 1;

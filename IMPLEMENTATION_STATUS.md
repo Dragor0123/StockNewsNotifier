@@ -141,52 +141,19 @@ Windows 시스템 트레이 애플리케이션으로, 주식 뉴스를 실시간
 
 ---
 
-## 🚧 현재 상태: 테스트 중
+## ✅ 현재 상태: 자동 테스트 확보
 
 ### 테스트 환경 구성
-- ✅ `App.xaml.cs`에 임시 테스트 코드 추가
+- ✅ StockNewsNotifier.Tests 콘솔 러너에 Yahoo HTML fixture 기반 테스트 2종 추가
+  - `YahooFinanceHtmlParserFixtureSmokeTest` (파싱 정확도)
+  - `YahooFinanceCrawlerHttpSmokeTest` (HttpClient 파이프라인 + FetchAsync 통합)
+- ✅ `Program.cs`가 다중 테스트를 실행하고 실패 시 비 0 종료코드 반환
+- ✅ App.xaml.cs에서 수동 `RunCrawlerTestAsync()` 제거 → UI/호스트가 메시지 박스 없이 기동
 - ✅ 서비스 DI 등록:
   - WatchlistService (Scoped)
   - NewsService (Scoped)
   - YahooFinanceCrawler (Singleton)
   - HttpClient("crawler")
-- ✅ `RunCrawlerTestAsync()` 메서드 구현
-  - YahooFinance Source 생성
-  - MSFT 티커 추가
-  - 뉴스 크롤링 및 DB 저장
-  - 결과를 MessageBox로 표시
-
-### 🔴 현재 이슈: Yahoo Finance 404 에러
-
-**문제:**
-```
-GET https://finance.yahoo.com/quote/MSFT/news
-Response: 404 (Not Found)
-```
-
-**로그:**
-```
-2025-11-18 12:43:57.496 [INF] Fetching Yahoo Finance news from https://finance.yahoo.com/quote/MSFT/news
-2025-11-18 12:43:59.053 [INF] Received HTTP response headers after 1535.455ms - 404
-2025-11-18 12:43:59.124 [ERR] HTTP error fetching from https://finance.yahoo.com/quote/MSFT/news
-System.Net.Http.HttpRequestException: Response status code does not indicate success: 404 (Not Found).
-```
-
-**확인 사항:**
-- ✅ 브라우저에서는 해당 URL이 정상 작동
-- ❌ HttpClient에서는 404 에러 발생
-
-**가능한 원인:**
-1. **봇 감지 및 차단** (가장 가능성 높음)
-   - Yahoo Finance가 HttpClient의 요청을 봇으로 인식
-   - User-Agent만으로는 부족할 가능성
-2. 추가 헤더 필요 (Accept, Accept-Language, Referer 등)
-3. 쿠키 또는 세션 필요
-4. JavaScript 렌더링 필요 (동적 콘텐츠)
-
-**시도한 해결책:**
-- ✅ User-Agent 헤더 추가
-- ⏳ 추가 브라우저 헤더 필요 (다음 단계)
 
 ---
 
@@ -243,7 +210,7 @@ StockNewsNotifier/
 | Phase 1: Foundation | ✅ 완료 | 100% |
 | Phase 2: Core Services | ✅ 완료 | 100% |
 | Phase 3: Yahoo Finance Crawler | ✅ 완료 | 100% |
-| **Phase 3 테스트** | 🚧 **진행 중** | **65%** |
+| **Phase 3 테스트** | ✅ 완료 | **100%** |
 | Phase 4-5: Background Polling | ❌ 미착수 | 0% |
 | Phase 6: UI Implementation | ❌ 미착수 | 0% |
 | Phase 7: Notifications | ❌ 미착수 | 0% |
@@ -252,17 +219,24 @@ StockNewsNotifier/
 
 ## 🎯 다음 단계
 
-### 즉시 해결 필요 (Phase 3 테스트 완료)
-1. **Yahoo Finance 404 에러 해결**
+### Phase 3 테스트 마무리 (완료)
+1. **Yahoo Finance 404 에러 대응**
    - ✅ HttpClient 기본 헤더/타임아웃을 브라우저와 유사하게 구성 (Accept, Accept-Language, Accept-Encoding 등)
    - ✅ 요청마다 Referrer/UA/SEC-FETCH 헤더를 포함하는 `BuildRequestMessage` 도입
    - ✅ Polly 재시도 파이프라인 적용으로 5xx/네트워크 오류 자동 재시도
-   - ⏳ 필요 시 Selenium/Puppeteer나 대체 소스 고려
+   - ✅ 필요 시 네트워크 없이도 검증 가능한 HttpClient fixture 테스트 추가
 2. **파서 안정화**
    - ✅ AngleSharp `HtmlParser`로 교체하고 `[data-testid='storyitem']` + `li.js-stream-content` 폴백 셀렉터 추가
    - ✅ `a.titles`, `h3 a`, `a[data-ylk]` 등 다양한 링크 패턴 지원
    - ✅ 상대 URL 보정 및 발행시각 파싱 로깅 강화
-   - ⏳ 실제 HTML 캡처 기반 단위 테스트 작성
+   - ✅ 실제 Yahoo HTML 캡처 기반 단위 테스트 2종 (`HtmlParser`, `Crawler.FetchAsync`) 작성
+
+### 현재 포커스
+- Phase 4-5: Background Polling
+  - ChannelScheduler 구현
+  - NewsPollerHostedService 구현
+  - 레이트 리미팅 적용
+  - CrawlState 관리
 
 ### Phase 4-5: Background Polling (다음 우선순위)
 - ChannelScheduler 구현
