@@ -9,7 +9,7 @@ using StockNewsNotifier.Services.Crawlers;
 namespace StockNewsNotifier.Tests.Crawlers;
 
 /// <summary>
-/// Exercises YahooFinanceCrawler.FetchAsync end-to-end using a captured HTML fixture and a fake HttpClientFactory.
+/// Exercises YahooFinanceCrawler.FetchAsync end-to-end using captured HTML fixtures and a fake HttpClientFactory.
 /// Ensures BuildQueryUrls + FetchAsync integration works without hitting the network.
 /// </summary>
 internal static class YahooFinanceCrawlerHttpSmokeTest
@@ -18,45 +18,89 @@ internal static class YahooFinanceCrawlerHttpSmokeTest
     {
         try
         {
-            var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "YahooFinance", "msft_news_sample.html");
-            if (!File.Exists(fixturePath))
+            var cases = new[]
             {
-                errorMessage = $"Fixture not found at {fixturePath}";
-                return false;
-            }
+                new
+                {
+                    Name = "msft-storyitem",
+                    FixtureFile = "msft_news_sample.html",
+                    Ticker = "MSFT",
+                    ExpectedTitles = new[]
+                    {
+                        "Microsoft jumps after earnings beat",
+                        "Azure growth accelerates again"
+                    },
+                    ExpectedUrls = new[]
+                    {
+                        "https://finance.yahoo.com/news/sample-article-one.html",
+                        "https://finance.yahoo.com/news/sample-article-two.html"
+                    }
+                },
+                new
+                {
+                    Name = "aapl-stream-content",
+                    FixtureFile = "aapl_news_sample.html",
+                    Ticker = "AAPL",
+                    ExpectedTitles = new[]
+                    {
+                        "Apple pushes new AI chips",
+                        "Services revenue keeps climbing"
+                    },
+                    ExpectedUrls = new[]
+                    {
+                        "https://finance.yahoo.com/news/sample-article-three.html",
+                        "https://finance.yahoo.com/news/sample-article-four.html"
+                    }
+                }
+            };
 
-            var handler = new FixtureHttpMessageHandler(fixturePath);
-            var client = new HttpClient(handler);
-            var factory = new SingleClientFactory(client);
-            var logger = new ConsoleLogger<YahooFinanceCrawler>();
-
-            var crawler = new YahooFinanceCrawler(factory, logger);
-            var watchItem = new WatchItem { Id = Guid.NewGuid(), Ticker = "MSFT" };
-
-            var urls = crawler.BuildQueryUrls(watchItem);
-            if (urls.Count != 1 || !urls[0].Equals("https://finance.yahoo.com/quote/MSFT/news?p=MSFT", StringComparison.Ordinal))
+            foreach (var testCase in cases)
             {
-                errorMessage = $"Unexpected query URL: {string.Join(", ", urls)}";
-                return false;
-            }
+                var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "YahooFinance", testCase.FixtureFile);
+                if (!File.Exists(fixturePath))
+                {
+                    errorMessage = $"{testCase.Name}: Fixture not found at {fixturePath}";
+                    return false;
+                }
 
-            var articles = crawler.FetchAsync(urls[0], CancellationToken.None).GetAwaiter().GetResult();
-            if (articles.Count != 2)
-            {
-                errorMessage = $"Expected 2 articles but fetched {articles.Count}.";
-                return false;
-            }
+                var handler = new FixtureHttpMessageHandler(fixturePath);
+                var client = new HttpClient(handler);
+                var factory = new SingleClientFactory(client);
+                var logger = new ConsoleLogger<YahooFinanceCrawler>();
 
-            if (!string.Equals(articles[0].Title, "Microsoft jumps after earnings beat", StringComparison.Ordinal))
-            {
-                errorMessage = "First article title mismatch.";
-                return false;
-            }
+                var crawler = new YahooFinanceCrawler(factory, logger);
+                var watchItem = new WatchItem { Id = Guid.NewGuid(), Ticker = testCase.Ticker };
 
-            if (!string.Equals(articles[1].Title, "Azure growth accelerates again", StringComparison.Ordinal))
-            {
-                errorMessage = "Second article title mismatch.";
-                return false;
+                var urls = crawler.BuildQueryUrls(watchItem);
+                var expectedUrl = $"https://finance.yahoo.com/quote/{testCase.Ticker}/news?p={testCase.Ticker}";
+                if (urls.Count != 1 || !urls[0].Equals(expectedUrl, StringComparison.Ordinal))
+                {
+                    errorMessage = $"{testCase.Name}: Unexpected query URL: {string.Join(", ", urls)}";
+                    return false;
+                }
+
+                var articles = crawler.FetchAsync(urls[0], CancellationToken.None).GetAwaiter().GetResult();
+                if (articles.Count != testCase.ExpectedTitles.Length)
+                {
+                    errorMessage = $"{testCase.Name}: Expected {testCase.ExpectedTitles.Length} articles but fetched {articles.Count}.";
+                    return false;
+                }
+
+                for (var i = 0; i < testCase.ExpectedTitles.Length; i++)
+                {
+                    var article = articles[i];
+                    if (!string.Equals(testCase.ExpectedTitles[i], article.Title, StringComparison.Ordinal))
+                    {
+                        errorMessage = $"{testCase.Name}: Article {i} title mismatch.";
+                        return false;
+                    }
+
+                    if (!string.Equals(testCase.ExpectedUrls[i], article.Url, StringComparison.Ordinal))
+                    {
+                        errorMessage = $"{testCase.Name}: Article {i} URL mismatch.";
+                        return false;
+                    }
+                }
             }
 
             errorMessage = null;

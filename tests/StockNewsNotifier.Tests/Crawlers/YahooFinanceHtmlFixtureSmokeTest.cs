@@ -4,70 +4,96 @@ using StockNewsNotifier.Services.Crawlers;
 namespace StockNewsNotifier.Tests.Crawlers;
 
 /// <summary>
-/// Lightweight smoke test that validates the HTML parser against a saved Yahoo Finance fixture.
-/// This avoids pulling in external test frameworks (network-restricted environment).
+/// Lightweight smoke tests that validate the Yahoo HTML parser against saved fixtures.
 /// </summary>
 internal static class YahooFinanceHtmlFixtureSmokeTest
 {
+    private sealed record ExpectedArticle(string Title, string Url, DateTime? PublishedUtc);
+
+    private sealed record ParserFixtureCase(
+        string Name,
+        string FixtureFile,
+        DateTime AnchorTime,
+        ExpectedArticle[] Expectations);
+
     public static bool Run(out string? errorMessage)
     {
         try
         {
-            var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "YahooFinance", "msft_news_sample.html");
-            if (!File.Exists(fixturePath))
+            var cases = new[]
             {
-                errorMessage = $"Fixture not found at {fixturePath}";
-                return false;
-            }
+                new ParserFixtureCase(
+                    Name: "msft-storyitem",
+                    FixtureFile: "msft_news_sample.html",
+                    AnchorTime: new DateTime(2024, 5, 4, 13, 0, 0, DateTimeKind.Utc),
+                    Expectations: new[]
+                    {
+                        new ExpectedArticle(
+                            "Microsoft jumps after earnings beat",
+                            "https://finance.yahoo.com/news/sample-article-one.html",
+                            DateTime.Parse("2024-05-04T12:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal)),
+                        new ExpectedArticle(
+                            "Azure growth accelerates again",
+                            "https://finance.yahoo.com/news/sample-article-two.html",
+                            DateTime.Parse("2024-05-04T11:30:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal))
+                    }),
+                new ParserFixtureCase(
+                    Name: "aapl-stream-content",
+                    FixtureFile: "aapl_news_sample.html",
+                    AnchorTime: new DateTime(2024, 5, 4, 13, 0, 0, DateTimeKind.Utc),
+                    Expectations: new[]
+                    {
+                        new ExpectedArticle(
+                            "Apple pushes new AI chips",
+                            "https://finance.yahoo.com/news/sample-article-three.html",
+                            new DateTime(2024, 5, 4, 12, 15, 0, DateTimeKind.Utc)),
+                        new ExpectedArticle(
+                            "Services revenue keeps climbing",
+                            "https://finance.yahoo.com/news/sample-article-four.html",
+                            new DateTime(2024, 5, 4, 11, 0, 0, DateTimeKind.Utc))
+                    })
+            };
 
-            var html = File.ReadAllText(fixturePath);
-            var anchorTime = new DateTime(2024, 5, 4, 13, 0, 0, DateTimeKind.Utc);
-
-            var articles = YahooFinanceHtmlParser.Parse(html, anchorTime);
-            if (articles.Count != 2)
+            foreach (var testCase in cases)
             {
-                errorMessage = $"Expected 2 articles but parsed {articles.Count}.";
-                return false;
-            }
+                var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "YahooFinance", testCase.FixtureFile);
+                if (!File.Exists(fixturePath))
+                {
+                    errorMessage = $"Fixture not found at {fixturePath}";
+                    return false;
+                }
 
-            var first = articles[0];
-            if (!string.Equals(first.Title, "Microsoft jumps after earnings beat", StringComparison.Ordinal))
-            {
-                errorMessage = "First article title mismatch.";
-                return false;
-            }
+                var html = File.ReadAllText(fixturePath);
+                var articles = YahooFinanceHtmlParser.Parse(html, testCase.AnchorTime);
+                if (articles.Count != testCase.Expectations.Length)
+                {
+                    errorMessage = $"{testCase.Name}: Expected {testCase.Expectations.Length} articles but parsed {articles.Count}.";
+                    return false;
+                }
 
-            if (!string.Equals(first.Url, "https://finance.yahoo.com/news/sample-article-one.html", StringComparison.Ordinal))
-            {
-                errorMessage = "First article URL mismatch.";
-                return false;
-            }
+                for (var i = 0; i < testCase.Expectations.Length; i++)
+                {
+                    var expected = testCase.Expectations[i];
+                    var actual = articles[i];
 
-            var expectedFirstTime = DateTime.Parse("2024-05-04T12:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
-            if (first.PublishedUtc != expectedFirstTime)
-            {
-                errorMessage = "First article publish time mismatch.";
-                return false;
-            }
+                    if (!string.Equals(expected.Title, actual.Title, StringComparison.Ordinal))
+                    {
+                        errorMessage = $"{testCase.Name}: Article {i} title mismatch. Expected '{expected.Title}' but got '{actual.Title}'.";
+                        return false;
+                    }
 
-            var second = articles[1];
-            if (!string.Equals(second.Title, "Azure growth accelerates again", StringComparison.Ordinal))
-            {
-                errorMessage = "Second article title mismatch.";
-                return false;
-            }
+                    if (!string.Equals(expected.Url, actual.Url, StringComparison.Ordinal))
+                    {
+                        errorMessage = $"{testCase.Name}: Article {i} URL mismatch. Expected '{expected.Url}' but got '{actual.Url}'.";
+                        return false;
+                    }
 
-            if (!string.Equals(second.Url, "https://finance.yahoo.com/news/sample-article-two.html", StringComparison.Ordinal))
-            {
-                errorMessage = "Second article URL mismatch.";
-                return false;
-            }
-
-            var expectedSecondTime = DateTime.Parse("2024-05-04T11:30:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
-            if (second.PublishedUtc != expectedSecondTime)
-            {
-                errorMessage = "Second article publish time mismatch.";
-                return false;
+                    if (expected.PublishedUtc != actual.PublishedUtc)
+                    {
+                        errorMessage = $"{testCase.Name}: Article {i} publish time mismatch.";
+                        return false;
+                    }
+                }
             }
 
             errorMessage = null;

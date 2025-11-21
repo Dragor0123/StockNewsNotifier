@@ -78,7 +78,8 @@ internal static class YahooFinanceHtmlParser
                 return;
             }
 
-            var url = anchor.Href ?? anchor.GetAttribute("href");
+            var rawHref = anchor.GetAttribute("href") ?? anchor.Href;
+            var url = rawHref;
             if (string.IsNullOrWhiteSpace(url))
             {
                 logger?.LogDebug("No URL found for article: {Title}", title);
@@ -88,6 +89,10 @@ internal static class YahooFinanceHtmlParser
             if (url.StartsWith("//", StringComparison.Ordinal))
             {
                 url = $"https:{url}";
+            }
+            else if (url.StartsWith("about:///", StringComparison.OrdinalIgnoreCase) && rawHref is { Length: > 0 })
+            {
+                url = rawHref;
             }
             else if (url.StartsWith("/", StringComparison.Ordinal))
             {
