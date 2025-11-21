@@ -245,6 +245,15 @@ StockNewsNotifier/
 - ⏳ 레이트 리밋 테스트/진단 로깅 강화
 - ⏳ Watch item 큐에 대한 우선순위/중복 제어 검토 (다중 소스 대비)
 
+### Phase 6: Tray/UI 진행 상황
+- ✅ WinForms `NotifyIcon` 기반 시스템 트레이 아이콘 추가 (`tray_icon.ico` 활용)
+- ✅ 트레이 컨텍스트 메뉴 (Open / Exit) 및 좌클릭으로 창 복귀
+- ✅ 창 닫기/최소화 시 트레이로 숨김, 종료 시 Tray Icon 정리
+- ✅ 메인 창에서 감시 목록 표시, 종목별 컨텍스트 메뉴(토글 알림/뉴스 보기/검색 풀 편집/삭제)
+- ✅ `+` 버튼으로 EXCHANGE:TICKER 입력 다이얼로그를 띄워 watch item 추가
+- ✅ 뉴스 목록 창과 소스 풀 편집 다이얼로그(체크리스트) 제공
+- ⏳ Watchlist/뉴스 UI 데이터 바인딩 및 편집 화면 구현
+
 ### Phase 6: UI Implementation
 - MainWindow 구현
 - NotifyIcon 트레이 아이콘

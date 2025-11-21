@@ -4,9 +4,127 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:StockNewsNotifier"
+        xmlns:converters="clr-namespace:StockNewsNotifier.Converters"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="Stock News Notifier"
+        Height="420"
+        Width="540"
+        MinWidth="420"
+        MinHeight="320">
+    <Grid Background="#FFF9F9FB" Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,0,0,12">
+            <Button Content="+"
+                    Width="36"
+                    Height="36"
+                    FontSize="20"
+                    Command="{Binding AddWatchCommand}" />
+            <Button Content="Refresh"
+                    Height="36"
+                    Margin="12,0,0,0"
+                    Command="{Binding RefreshCommand}" />
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Background="White"
+                CornerRadius="10"
+                Padding="8"
+                BorderBrush="#E0E0E0"
+                BorderThickness="1">
+            <ScrollViewer>
+                <ItemsControl ItemsSource="{Binding WatchItems}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,0,8"
+                                    Padding="8"
+                                    Background="#FFFDFDFE"
+                                    CornerRadius="6"
+                                    BorderBrush="#FFCECECE"
+                                    BorderThickness="1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="42"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="40"/>
+                                        <ColumnDefinition Width="30"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Width="32"
+                                            Height="32"
+                                            CornerRadius="6"
+                                            Background="#FFE1E1E1"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                        <Image Source="{Binding IconUrl}"
+                                               Stretch="UniformToFill"
+                                               Width="32"
+                                               Height="32"
+                                               Visibility="{Binding IconUrl, Converter={StaticResource NullToVisibilityConverter}, FallbackValue=Collapsed}"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                        <TextBlock Text="{Binding SymbolDisplay}"
+                                                   FontWeight="Bold"
+                                                   Foreground="#333333"/>
+                                        <TextBlock Text="{Binding CompanyName}"
+                                                   Foreground="#777"
+                                                   FontSize="11"/>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding AlertGlyph}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="18"
+                                               ToolTip="{Binding AlertToolTip}"/>
+
+                                    <Button Grid.Column="3"
+                                            Content="⋯"
+                                            Width="24"
+                                            Height="24"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Click="OnRowMenuButtonClick">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="{Binding AlertMenuText}" Command="{Binding ToggleAlertsCommand}"/>
+                                                <MenuItem Header="View News" Command="{Binding ViewNewsCommand}"/>
+                                                <MenuItem Header="Edit Search Pool" Command="{Binding EditSourcesCommand}"/>
+                                                <Separator/>
+                                                <MenuItem Header="Delete" Command="{Binding DeleteCommand}"/>
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    CornerRadius="4"
+                                                                    Padding="0">
+                                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                                  VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                    <ItemsControl.Resources>
+                        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+                    </ItemsControl.Resources>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

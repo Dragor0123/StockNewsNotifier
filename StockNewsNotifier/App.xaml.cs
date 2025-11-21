@@ -19,12 +19,15 @@ namespace StockNewsNotifier;
 /// <summary>
 /// Interaction logic for App.xaml
 /// </summary>
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private IHost? _host;
+    private MainWindow? _mainWindow;
+    public static IServiceProvider? Services { get; private set; }
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
         base.OnStartup(e);
 
         // Configure Serilog before building the host
@@ -87,16 +90,17 @@ public partial class App : Application
                 .Build();
 
             await _host.StartAsync();
+            Services = _host.Services;
 
             Log.Information("Host started successfully");
 
-            // TODO: Show main window or tray icon in Phase 6
-            // For now, we'll just let the host run
+            _mainWindow = new MainWindow();
+            _mainWindow.Show();
         }
         catch (Exception ex)
         {
             Log.Fatal(ex, "Application start-up failed");
-            MessageBox.Show($"Application failed to start: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            System.Windows.MessageBox.Show($"Application failed to start: {ex.Message}", "Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             Shutdown();
         }
     }
@@ -110,6 +114,10 @@ public partial class App : Application
             await _host.StopAsync();
             _host.Dispose();
         }
+
+        _mainWindow?.DisposeTrayIcon();
+        _mainWindow = null;
+        Services = null;
 
         Log.CloseAndFlush();
         base.OnExit(e);

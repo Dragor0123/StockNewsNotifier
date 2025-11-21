@@ -1,0 +1,46 @@
+<Window x:Class="StockNewsNotifier.Views.NewsViewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="News"
+        Width="480"
+        Height="520"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock x:Name="HeaderText"
+                       FontSize="18"
+                       FontWeight="Bold" />
+            <Button Content="Refresh"
+                    Height="28"
+                    Margin="12,0,0,0"
+                    Width="80"
+                    Click="OnRefreshClicked" />
+        </StackPanel>
+
+        <ListView x:Name="NewsList" Grid.Row="1">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,0,8"
+                            Padding="8"
+                            CornerRadius="6"
+                            Background="{Binding Background}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Title}"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding SourceAndTime}"
+                                       Margin="0,4,0,0"
+                                       Foreground="Gray"
+                                       FontSize="11" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Window>
