@@ -10,4 +10,10 @@ public interface IScheduler
     /// </summary>
     /// <param name="watchItemId">ID of the watch item to crawl</param>
     void EnqueueCrawl(Guid watchItemId);
+
+    /// <summary>
+    /// Mark a crawl job as completed so it can be enqueued again
+    /// </summary>
+    /// <param name="watchItemId">ID of the processed watch item</param>
+    void MarkCompleted(Guid watchItemId);
 }

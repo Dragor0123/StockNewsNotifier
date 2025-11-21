@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,6 +57,10 @@ public class NewsPollerHostedService : BackgroundService
             {
                 _logger.LogError(ex, "Error processing crawl job for {WatchItemId}", watchItemId);
             }
+            finally
+            {
+                _scheduler.MarkCompleted(watchItemId);
+            }
         }
 
         _logger.LogInformation("News poller hosted service stopped");
@@ -103,6 +108,7 @@ public class NewsPollerHostedService : BackgroundService
         var newsService = scope.ServiceProvider.GetRequiredService<INewsService>();
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
         var crawlers = scope.ServiceProvider.GetServices<ISourceCrawler>().ToList();
+        var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
 
         var watchItem = await db.WatchItems
             .Include(w => w.WatchItemSources)
@@ -132,7 +138,7 @@ public class NewsPollerHostedService : BackgroundService
                 continue;
             }
 
-            await CrawlSourceAsync(watchItem, watchSource.Source, crawler, newsService, notificationService, db, ct);
+            await CrawlSourceAsync(watchItem, watchSource.Source, crawler, newsService, notificationService, db, httpClientFactory, ct);
         }
     }
 
@@ -143,6 +149,7 @@ public class NewsPollerHostedService : BackgroundService
         INewsService newsService,
         INotificationService notificationService,
         AppDbContext db,
+        IHttpClientFactory httpClientFactory,
         CancellationToken ct)
     {
         CrawlState? crawlState = null;
@@ -152,6 +159,7 @@ public class NewsPollerHostedService : BackgroundService
             var totalNewCount = 0;
             var urls = crawler.BuildQueryUrls(watchItem);
             crawlState = await GetOrCreateCrawlStateAsync(source, crawler, db, ct);
+            await EnsureRobotsTxtAsync(crawlState, source, crawler, db, httpClientFactory, ct);
 
             foreach (var url in urls)
             {
@@ -361,6 +369,62 @@ public class NewsPollerHostedService : BackgroundService
         state.LastError = ex.Message;
         state.LastErrorUtc = DateTime.UtcNow;
         return db.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureRobotsTxtAsync(
+        CrawlState state,
+        Source source,
+        ISourceCrawler crawler,
+        AppDbContext db,
+        IHttpClientFactory httpClientFactory,
+        CancellationToken ct)
+    {
+        var cacheDuration = GetRobotsCacheDuration();
+        if (state.RobotsTxtFetchedUtc.HasValue &&
+            state.RobotsTxtFetchedUtc.Value >= DateTime.UtcNow - cacheDuration)
+        {
+            return;
+        }
+
+        var host = GetHostForSource(source, crawler);
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            _logger.LogWarning("Unable to determine host for {Source} when fetching robots.txt", source.Name);
+            return;
+        }
+
+        var robotsUrl = $"https://{host.TrimEnd('/')}/robots.txt";
+
+        try
+        {
+            var client = httpClientFactory.CreateClient("crawler");
+            var robotsText = await client.GetStringAsync(robotsUrl, ct);
+
+            if (robotsText.Length > 10000)
+            {
+                robotsText = robotsText[..10000];
+            }
+
+            state.RobotsTxt = robotsText;
+            state.RobotsTxtFetchedUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Updated robots.txt cache for {Source}", source.Name);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch robots.txt for {Source}", source.Name);
+        }
+    }
+
+    private TimeSpan GetRobotsCacheDuration()
+    {
+        var hours = Math.Max(1, _configuration.GetValue<int>("Crawler:RobotsCacheHours", 24));
+        return TimeSpan.FromHours(hours);
     }
 
     private sealed record RateLimitSettings(double RequestsPerSecond, int RequestsPerMinute);

@@ -237,11 +237,13 @@ StockNewsNotifier/
 - ✅ CrawlState 생성/업데이트 + 연속 오류 기록
 - ✅ 구성이 가능한 레이트 리밋 (기본 RPS/RPM + host override) 적용
 - ✅ 크롤링 시 rate-limit 대기 및 성공/실패마다 CrawlState 반영
+- ✅ ChannelScheduler가 큐 중복을 방지하고 작업 완료 시 MarkCompleted로 unlock
+- ✅ robots.txt를 주기적으로 캐시하여 CrawlState에 저장 (`Crawler.RobotsCacheHours`, 기본 24시간)
 
 ### Phase 4-5: 다음 작업
-- ⏳ CrawlState 기반의 robots.txt 캐시/재검증
+- ⏳ robots.txt Disallow 규칙을 실제 크롤링 앞단에서 평가
 - ⏳ 레이트 리밋 테스트/진단 로깅 강화
-- ⏳ Watch item 큐에 대한 우선순위/중복 제어 검토
+- ⏳ Watch item 큐에 대한 우선순위/중복 제어 검토 (다중 소스 대비)
 
 ### Phase 6: UI Implementation
 - MainWindow 구현
