@@ -14,6 +14,9 @@ public static class SourceSeeder
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+        // Ensure the database and tables are created/up-to-date before seeding
+        await db.Database.MigrateAsync();
+
         foreach (var definition in SourceDefinitions.Defaults)
         {
             var existing = await db.Sources.FirstOrDefaultAsync(s => s.Name == definition.Name);
