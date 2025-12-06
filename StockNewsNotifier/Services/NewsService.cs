@@ -14,11 +14,13 @@ public class NewsService : INewsService
 {
     private readonly AppDbContext _db;
     private readonly ILogger<NewsService> _logger;
+    private readonly IUnreadCountNotifier _unreadNotifier;
 
-    public NewsService(AppDbContext db, ILogger<NewsService> logger)
+    public NewsService(AppDbContext db, ILogger<NewsService> logger, IUnreadCountNotifier unreadNotifier)
     {
         _db = db;
         _logger = logger;
+        _unreadNotifier = unreadNotifier;
     }
 
     /// <inheritdoc/>
@@ -93,6 +95,8 @@ public class NewsService : INewsService
             await _db.SaveChangesAsync(ct);
             _logger.LogInformation("Ingested {NewCount} new articles for {Exchange}:{Ticker} from source {SourceId}",
                 newCount, watch.Exchange, watch.Ticker, sourceId);
+
+            _unreadNotifier.Publish(watch.Id, delta: newCount);
         }
 
         return newCount;
@@ -124,6 +128,12 @@ public class NewsService : INewsService
     }
 
     /// <inheritdoc/>
+    public Task<int> GetUnreadCountAsync(Guid watchItemId, CancellationToken ct)
+    {
+        return _db.NewsItems.CountAsync(n => n.WatchItemId == watchItemId && !n.IsRead, ct);
+    }
+
+    /// <inheritdoc/>
     public async Task MarkReadAsync(Guid newsId, bool isRead, CancellationToken ct)
     {
         var item = await _db.NewsItems.FindAsync(new object[] { newsId }, ct);
@@ -134,8 +144,14 @@ public class NewsService : INewsService
             return;
         }
 
-        item.IsRead = isRead;
-        await _db.SaveChangesAsync(ct);
+        if (item.IsRead != isRead)
+        {
+            item.IsRead = isRead;
+            await _db.SaveChangesAsync(ct);
+
+            var delta = isRead ? -1 : 1;
+            _unreadNotifier.Publish(item.WatchItemId, delta: delta);
+        }
 
         _logger.LogDebug("Marked news item {NewsId} as {Status}", newsId, isRead ? "read" : "unread");
     }

@@ -58,6 +58,7 @@ public partial class App : System.Windows.Application
                     services.AddDbContext<AppDbContext>(options =>
                         options.UseSqlite($"Data Source={dbPath}"));
 
+                    services.AddSingleton<IUnreadCountNotifier, UnreadCountNotifier>();
                     services.AddScoped<IWatchlistService, WatchlistService>();
                     services.AddScoped<INewsService, NewsService>();
 
@@ -83,6 +84,7 @@ public partial class App : System.Windows.Application
                     // Background infrastructure
                     services.AddSingleton<INotificationService, NotificationService>();
                     services.AddHostedService<NewsPollerHostedService>();
+                    services.AddHostedService<PricePollerHostedService>();
 
                     // Crawlers
                     services.AddSingleton<ISourceCrawler, YahooFinanceCrawler>();

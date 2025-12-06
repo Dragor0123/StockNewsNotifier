@@ -60,9 +60,24 @@ public class MainWindowViewModel : BaseViewModel
             var items = await watchlistService.ListAsync();
 
             WatchItems.Clear();
-            foreach (var item in items)
+            var viewModels = items.Select(item => new WatchItemViewModel(this, _services, item)).ToList();
+
+            foreach (var vm in viewModels)
             {
-                WatchItems.Add(new WatchItemViewModel(this, _services, item));
+                WatchItems.Add(vm);
+            }
+
+            foreach (var vm in viewModels)
+            {
+                try
+                {
+                    await vm.InitializeAsync();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to load unread count for {vm.SymbolDisplay}: {ex.Message}",
+                        "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             }
 
             if (!_initialQueueCompleted && WatchItems.Count > 0)

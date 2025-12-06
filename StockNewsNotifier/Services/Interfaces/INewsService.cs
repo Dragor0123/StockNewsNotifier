@@ -28,6 +28,11 @@ public interface INewsService
     Task<IReadOnlyList<NewsItem>> ListAsync(Guid watchItemId, int days, bool unreadOnly, CancellationToken ct);
 
     /// <summary>
+    /// Get unread article count for a watch item
+    /// </summary>
+    Task<int> GetUnreadCountAsync(Guid watchItemId, CancellationToken ct);
+
+    /// <summary>
     /// Mark a news item as read or unread
     /// </summary>
     /// <param name="newsId">ID of the news item</param>

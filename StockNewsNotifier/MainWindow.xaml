@@ -53,6 +53,8 @@
                                         <ColumnDefinition Width="42"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="40"/>
+                                        <ColumnDefinition Width="40"/>
+                                        <ColumnDefinition Width="70"/>
                                         <ColumnDefinition Width="30"/>
                                     </Grid.ColumnDefinitions>
 
@@ -69,13 +71,10 @@
                                                Visibility="{Binding IconUrl, Converter={StaticResource NullToVisibilityConverter}, FallbackValue=Collapsed}"/>
                                     </Border>
 
-                                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                                        <TextBlock Text="{Binding SymbolDisplay}"
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Ticker}"
                                                    FontWeight="Bold"
                                                    Foreground="#333333"/>
-                                        <TextBlock Text="{Binding CompanyName}"
-                                                   Foreground="#777"
-                                                   FontSize="11"/>
                                     </StackPanel>
 
                                     <TextBlock Grid.Column="2"
@@ -85,7 +84,21 @@
                                                FontSize="18"
                                                ToolTip="{Binding AlertToolTip}"/>
 
-                                    <Button Grid.Column="3"
+                                    <TextBlock Grid.Column="3"
+                                               Text="{Binding UnreadCount}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Foreground="Red"
+                                               FontWeight="Bold"/>
+
+                                    <TextBlock Grid.Column="4"
+                                               Text="{Binding PriceDisplay}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontWeight="Bold"
+                                               Foreground="#333"/>
+
+                                    <Button Grid.Column="5"
                                             Content="⋯"
                                             Width="24"
                                             Height="24"

@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,12 +19,19 @@ public class WatchItemViewModel : BaseViewModel
 {
     private readonly IServiceProvider _services;
     private readonly MainWindowViewModel _parent;
+    private readonly IUnreadCountNotifier _unreadNotifier;
+    private readonly INewsService _newsService;
     private bool _alertsEnabled;
+    private int _unreadCount;
+    private decimal? _lastPrice = null; // price polling scaffold; populated when price service arrives
 
     public WatchItemViewModel(MainWindowViewModel parent, IServiceProvider services, WatchItem entity)
     {
         _parent = parent;
         _services = services;
+        _newsService = _services.GetRequiredService<INewsService>();
+        _unreadNotifier = _services.GetRequiredService<IUnreadCountNotifier>();
+        _unreadNotifier.UnreadCountChanged += OnUnreadCountChanged;
 
         Id = entity.Id;
         Exchange = entity.Exchange;
@@ -62,11 +70,22 @@ public class WatchItemViewModel : BaseViewModel
     public string AlertGlyph => AlertsEnabled ? "🔔" : "🔕";
     public string AlertToolTip => AlertsEnabled ? "Alerts enabled" : "Alerts disabled";
     public string AlertMenuText => AlertsEnabled ? "Turn alerts off" : "Turn alerts on";
+    public int UnreadCount
+    {
+        get => _unreadCount;
+        private set => SetProperty(ref _unreadCount, value);
+    }
+    public string PriceDisplay => _lastPrice.HasValue ? $"${_lastPrice.Value:F2}" : "—";
 
     public RelayCommand ToggleAlertsCommand { get; }
     public RelayCommand ViewNewsCommand { get; }
     public RelayCommand EditSourcesCommand { get; }
     public RelayCommand DeleteCommand { get; }
+
+    public async Task InitializeAsync()
+    {
+        UnreadCount = await _newsService.GetUnreadCountAsync(Id, CancellationToken.None);
+    }
 
     private async Task ToggleAlertsAsync()
     {
@@ -75,6 +94,11 @@ public class WatchItemViewModel : BaseViewModel
             var watchlistService = _services.GetRequiredService<IWatchlistService>();
             await watchlistService.SetAlertsAsync(Id, !AlertsEnabled);
             AlertsEnabled = !AlertsEnabled;
+
+            if (AlertsEnabled)
+            {
+                UnreadCount = await _newsService.GetUnreadCountAsync(Id, CancellationToken.None);
+            }
         }
         catch (Exception ex)
         {
@@ -129,6 +153,52 @@ public class WatchItemViewModel : BaseViewModel
         catch (Exception ex)
         {
             MessageBox.Show($"Failed to remove watch item: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void OnUnreadCountChanged(object? sender, UnreadCountChangedEventArgs e)
+    {
+        if (e.WatchItemId != Id || !AlertsEnabled)
+        {
+            return;
+        }
+
+        void Apply()
+        {
+            if (e.AbsoluteCount.HasValue)
+            {
+                UnreadCount = e.AbsoluteCount.Value;
+            }
+            else if (e.Delta.HasValue)
+            {
+                UnreadCount = Math.Max(0, UnreadCount + e.Delta.Value);
+            }
+            else
+            {
+                _ = RefreshUnreadCountAsync();
+            }
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.InvokeAsync(Apply);
+        }
+        else
+        {
+            Apply();
+        }
+    }
+
+    private async Task RefreshUnreadCountAsync()
+    {
+        try
+        {
+            UnreadCount = await _newsService.GetUnreadCountAsync(Id, CancellationToken.None);
+        }
+        catch
+        {
+            // suppress failures; will refresh on next UI update
         }
     }
 }
